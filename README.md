@@ -1,19 +1,20 @@
 # FormForge
 
-React + Vite + Tailwind frontend (`/`) and Express + MongoDB backend (`/server`), implemented in JavaScript and JSX. All phases are in this one project.
+React + Vite + Tailwind frontend (`/frontend`) and Express + MongoDB backend (`/backend`), implemented in JavaScript and JSX.
 
 ## Run it
 1. MongoDB running locally (or an Atlas URI).
-2. Copy `.env.example` to `.env.local` in the project root and set `VITE_CLERK_PUBLISHABLE_KEY` from the Clerk Dashboard.
-3. Copy `server/.env.example` to `server/.env`; set `MONGODB_URI`, `CLERK_PUBLISHABLE_KEY` (the same publishable key), and `CLERK_SECRET_KEY`. Run `npm install` in `server`.
-4. Install frontend dependencies in the project root with `npm install`, then run `npm run dev` (frontend on port 5173, API on port 4000).
+2. Copy `backend/.env.example` to `backend/.env`. Set `MONGODB_URI`, `CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY`; the example file itself is not loaded by the server.
+3. Set `VITE_CLERK_PUBLISHABLE_KEY` in `frontend/.env` using the Clerk Dashboard.
+4. Run `npm install` in both `backend` and `frontend`.
+5. Start the API with `npm run dev` from `backend`, and the frontend with `npm run dev` from `frontend` (ports 4000 and 5173, respectively).
 
-The development command starts both services; the API must connect to MongoDB before signup or login can work. Check `http://localhost:4000/api/health` for `{"ok":true}` if the browser reports a gateway error. The frontend defaults to `/api`; set `VITE_API_PROXY_TARGET` if the backend is not at `http://localhost:4000`. To run only the frontend, use `npm run dev:web`. The backend reads only `server/.env` (or its deployment environment); frontend settings belong in the root `.env.local`.
+The API must connect to MongoDB before signup or login can work. Check `http://localhost:4000/api/health` for `{"ok":true}` if the browser reports a gateway error. The frontend defaults to `/api`; set `VITE_API_PROXY_TARGET` in `frontend/.env` if the backend is not at `http://localhost:4000`. The backend reads only `backend/.env` (or its deployment environment).
 
 When deploying frontend and backend separately, set the frontend build variable `VITE_API_BASE_URL` to the backend origin (for example `https://api.example.com`) or its `/api` URL. Set the backend `CLIENT_ORIGIN` to the frontend origin so browser requests are allowed by CORS. Rebuild the frontend after changing `VITE_API_BASE_URL`.
 
 ## Tests
-Run the focused validation/component suite with `npm test` from `server`. Run the public submission/upload end-to-end test with `npm run test:e2e` from `server`; it requires the configured MongoDB and Clerk environment and creates then removes a temporary test form and upload.
+Run the focused validation/component suite with `npm test` from `backend`. Run the public submission/upload end-to-end test with `npm run test:e2e` from `backend`; it requires the configured MongoDB and Clerk environment and creates then removes a temporary test form and upload.
 
 ## Authentication and account migration
 Sign-in, sign-up, and password recovery are handled by Clerk. The frontend uses `VITE_CLERK_PUBLISHABLE_KEY`; the backend requires `CLERK_SECRET_KEY` and the same publishable key as `CLERK_PUBLISHABLE_KEY`. Never put `CLERK_SECRET_KEY` in a frontend environment file. Configure these through Clerk for each deployment environment. Existing FormForge accounts are linked to Clerk only after a user signs in with a verified primary email that matches the saved account. Existing passwords are not imported, so users must create or recover their password through Clerk.
