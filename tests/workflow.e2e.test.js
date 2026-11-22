@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 
-const require = createRequire(new URL("../server/package.json", import.meta.url));
+const require = createRequire(new URL("../backend/package.json", import.meta.url));
 require("dotenv/config");
 let mongoose;
 let User;
