@@ -58,6 +58,42 @@ export function validateAll(fields, values) {
     }
     return errors;
 }
+export function normalizeFormSteps(form) {
+    let steps = Array.isArray(form.steps) ? form.steps.map(step => ({
+        id: step.id,
+        title: step.title ?? '',
+        description: step.description ?? '',
+        showIf: step.showIf ?? null,
+    })) : [];
+    if (!steps.length)
+        steps = [{ id: 'step_1', title: 'Step 1', description: '', showIf: null }];
+    const known = new Set(steps.map(step => step.id));
+    return {
+        ...form,
+        steps,
+        fields: (form.fields ?? []).map(field => ({
+            ...field,
+            stepId: field.stepId && known.has(field.stepId) ? field.stepId : steps[0].id,
+            showIf: field.showIf ?? null,
+        })),
+    };
+}
+export function conditionMatches(condition, values) {
+    if (!condition?.fieldId)
+        return true;
+    const actual = values[condition.fieldId];
+    const normalized = actual === true ? 'true' : actual === false ? 'false' : String(actual ?? '');
+    return condition.operator === 'not_equals' ? normalized !== condition.value : normalized === condition.value;
+}
+export function visibleSteps(form, values) {
+    return (form.steps ?? []).filter(step => conditionMatches(step.showIf, values));
+}
+export function visibleFields(form, values, stepId) {
+    return (form.fields ?? []).filter(field =>
+        (!stepId || field.stepId === stepId) &&
+        conditionMatches(field.showIf, values)
+    );
+}
 export function firstInvalidField(fields, errors) {
     return fields.find(field => errors[field.id]);
 }
@@ -123,5 +159,14 @@ export function validateFormContent(form) {
         return 'Description must be at most 2,000 characters';
     if (!/^#[0-9a-fA-F]{6}$/.test(form.accent))
         return 'Choose a valid accent color';
+    const steps = form.steps?.length ? form.steps : [{ id: 'step_1' }];
+    if (steps.length === 0)
+        return 'Add at least one step';
+    if (new Set(steps.map(step => step.id)).size !== steps.length)
+        return 'Step IDs must be unique';
+    if (steps.some(step => !(form.fields ?? []).some(field => (field.stepId ?? steps[0].id) === step.id)))
+        return 'Every step must contain at least one question';
+    if (steps.some(step => step.title != null && step.title.length > 200))
+        return 'Step title must be at most 200 characters';
     return Object.values(validateFieldDefinitions(form.fields))[0] ?? null;
 }

@@ -2,6 +2,7 @@
 
 const { z } = require("zod");
 const { formBody, formPatchBody } = require("../validate");
+const { responseQuerySchema } = require("../responseQuery");
 const formsService = require("../services/formsService");
 
 const notFound = res => res.status(404).json({ error: "Form not found" });
@@ -75,10 +76,31 @@ async function remove(req, res) {
 }
 
 async function listResponses(req, res) {
-    const responses = await formsService.listResponses(req.params.id, res.locals.userId);
+    if (Object.keys(req.query).length === 0) {
+        const responses = await formsService.listAllResponses(req.params.id, res.locals.userId);
+        if (!responses)
+            return notFound(res);
+        res.json(responses);
+        return;
+    }
+    const query = responseQuerySchema.parse(req.query);
+    const responses = await formsService.listResponses(req.params.id, res.locals.userId, query);
     if (!responses)
         return notFound(res);
+    if (responses.invalidField) {
+        res.status(400).json({ error: responses.invalidField });
+        return;
+    }
     res.json(responses);
+}
+
+async function exportResponses(req, res) {
+    const query = responseQuerySchema.parse(req.query);
+    const result = await formsService.streamResponseExport(req.params.id, res.locals.userId, query, res);
+    if (result === null)
+        return notFound(res);
+    if (result?.invalidField)
+        res.status(400).json({ error: result.invalidField });
 }
 
 async function deleteResponse(req, res) {
@@ -92,4 +114,30 @@ async function deleteResponse(req, res) {
     res.status(204).end();
 }
 
-module.exports = { activity, create, deleteResponse, downloadFile, duplicate, get, list, listResponses, patch, remove, setStatus };
+async function updateResponseStatus(req, res) {
+    const { status } = z.object({ status: z.enum(["read", "unread"]) }).parse(req.body);
+    const response = await formsService.updateResponseStatus(req.params.id, req.params.rid, res.locals.userId, status);
+    if (response === null)
+        return notFound(res);
+    if (!response) {
+        res.status(404).json({ error: "Response not found" });
+        return;
+    }
+    res.json(response);
+}
+
+async function deleteResponses(req, res) {
+    const { responseIds } = z.object({
+        responseIds: z.array(z.string().regex(/^[a-f0-9]{24}$/i)).min(1).max(500)
+            .refine(ids => new Set(ids).size === ids.length, "Response IDs must be unique"),
+    }).parse(req.body);
+    const result = await formsService.deleteResponses(req.params.id, responseIds, res.locals.userId);
+    if (!result)
+        return notFound(res);
+    res.json(result);
+}
+
+module.exports = {
+    activity, create, deleteResponse, deleteResponses, downloadFile, duplicate, exportResponses,
+    get, list, listResponses, patch, remove, setStatus, updateResponseStatus,
+};

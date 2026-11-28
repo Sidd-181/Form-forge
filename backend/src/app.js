@@ -11,8 +11,10 @@ const auth = require("./routes/auth");
 const forms = require("./routes/forms");
 const publicRoutes = require("./routes/public").default;
 const settings = require("./routes/settings").default;
+const googleSheets = require("./routes/googleSheets");
 const { errorHandler } = require("./middleware");
 const { connectToDatabase } = require("./database");
+const { startGoogleSheetsDeliveryWorker } = require("./services/googleSheetsWorker");
 
 const app = express();
 const { CLIENT_ORIGIN = "http://localhost:5173" } = process.env;
@@ -44,6 +46,7 @@ const createRateLimiter = (windowMs, limit) => rateLimit({
 });
 app.use("/api/auth", createRateLimiter(15 * 60_000, 30));
 app.use("/api/settings", createRateLimiter(15 * 60_000, 60));
+app.use("/api/integrations", createRateLimiter(15 * 60_000, 60));
 app.use("/api/public", createRateLimiter(60_000, 60));
 
 app.use("/api", async (_req, res, next) => {
@@ -59,6 +62,7 @@ app.use("/api", async (_req, res, next) => {
 
     try {
         await connectToDatabase();
+        startGoogleSheetsDeliveryWorker();
         next();
     }
     catch (error) {
@@ -70,6 +74,7 @@ app.use("/api", async (_req, res, next) => {
 app.use("/api/auth", auth);
 app.use("/api/forms", forms);
 app.use("/api/settings", settings);
+app.use("/api/integrations/google-sheets", googleSheets);
 app.use("/api/public", publicRoutes);
 app.use("/api", (_req, res) => {
     res.status(404).json({ error: "Not found" });

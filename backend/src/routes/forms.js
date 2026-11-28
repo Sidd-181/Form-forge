@@ -16,6 +16,9 @@ router.post("/:id/status", controller.setStatus);
 router.post("/:id/duplicate", controller.duplicate);
 router.delete("/:id", controller.remove);
 router.get("/:id/responses", controller.listResponses);
+router.get("/:id/responses/export", controller.exportResponses);
+router.patch("/:id/responses/:rid/status", controller.updateResponseStatus);
+router.delete("/:id/responses", controller.deleteResponses);
 router.delete("/:id/responses/:rid", controller.deleteResponse);
 
 module.exports = router;

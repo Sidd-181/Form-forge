@@ -17,8 +17,11 @@ export const TEMPLATES = [
 ];
 export function buildForm(t) {
     const now = new Date().toISOString();
+    const stepId = uid();
+    const fields = t ? t.fields.map(([type, label, req, opts]) => ({ ...newField(type, label, !!req, opts), stepId })) : [{ ...newField('short_text', 'Your name', true), stepId }];
     return {
         id: uid(), title: t?.title ?? 'Untitled form', description: t?.description ?? '', status: 'draft', accent: '#4f46e5', createdAt: now, updatedAt: now,
-        fields: t ? t.fields.map(([type, label, req, opts]) => newField(type, label, !!req, opts)) : [newField('short_text', 'Your name', true)],
+        steps: [{ id: stepId, title: 'Step 1', description: '', showIf: null }],
+        fields,
     };
 }

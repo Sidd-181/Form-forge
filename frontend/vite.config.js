@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   return {
+    appType: 'spa',
     plugins: [react(), tailwindcss()],
     server: {
       proxy: {

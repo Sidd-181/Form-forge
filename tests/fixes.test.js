@@ -10,16 +10,19 @@ const frontendRequire = createRequire(new URL("../frontend/package.json", import
 const React = frontendRequire("react");
 const { renderToStaticMarkup } = frontendRequire("react-dom/server");
 import { ApiError, api, setAuthTokenGetter } from "../frontend/src/services/api.js";
-import { firstInvalidField, validateAll, validateField, validateFieldDefinition, validateFormContent } from "../frontend/src/services/validation.js";
+import { firstInvalidField, validateAll, validateField, validateFieldDefinition, validateFormContent, normalizeFormSteps, visibleSteps, visibleFields, conditionMatches } from "../frontend/src/services/validation.js";
 import { submissionReservationFilter } from "../backend/src/submissionLimit.js";
 import { getAllowedFileType, MAX_UPLOAD_SIZE, maxFileSizeForField } from "../backend/src/uploadPolicy.js";
 import { checkAnswers, fieldSchema, formBody, formPatchBody } from "../backend/src/validate.js";
 import { createLatestSaveQueue } from "../frontend/src/services/saveQueue.js";
-import { loadDashboard, responseDeleted, store } from "../frontend/src/store/index.js";
+import { loadDashboard, responseDeleted, responsesDeleted, store } from "../frontend/src/store/index.js";
 import { answerForResponseField, fieldsForResponse, responseFieldColumns } from "../frontend/src/services/responses.js";
 import { removeStoredUploads } from "../backend/src/uploadCleanup.js";
 const serverRequire = createRequire(new URL("../backend/package.json", import.meta.url));
 const { Form, FormResponse } = serverRequire("./src/models.js");
+const { buildResponseFilter, buildResponseSort, csvCell, responseQuerySchema, validateResponseFields, xmlText } = serverRequire("./src/responseQuery.js");
+const { answerCellValue, columnName, quoteSheetTitle } = serverRequire("./src/services/googleSheets.js");
+const { isTransientMongoNetworkError } = serverRequire("./src/services/googleSheetsWorker.js");
 let FormRenderer;
 before(async () => {
   const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../frontend");
@@ -60,6 +63,18 @@ test("file answers require a real-looking upload reference and frontend rejects 
   assert.equal(validateField(fileField, void 0), "This field is required");
   assert.equal(validateField(fileField, { ...fileAnswer, name: "report.pdf", size: 12, mimeType: "application/pdf" }), null);
 });
+test("server ignores required hidden step fields when conditional answers skip them", () => {
+  const fields = [
+    { id: "choice", type: "multiple_choice", label: "Choice", required: true, stepId: "details", options: ["Yes", "No"] },
+    { id: "extra", type: "short_text", label: "Extra", required: true, stepId: "extra", showIf: { fieldId: "choice", operator: "equals", value: "Yes" } },
+  ];
+  const steps = [
+    { id: "details", title: "Details" },
+    { id: "extra", title: "Extra", showIf: { fieldId: "choice", operator: "equals", value: "Yes" } },
+  ];
+  assert.deepEqual(checkAnswers(fields, { choice: "No" }, steps).errors, {});
+  assert.equal(checkAnswers(fields, { choice: "Yes" }, steps).errors.extra, "This field is required");
+});
 test("field IDs cannot become Mongo operators and date answers use real ISO calendar dates", () => {
   const field = { id: "user-name_1", type: "date", label: "Date", required: true };
   assert.equal(fieldSchema.safeParse({ ...field, id: "answer.key" }).success, false);
@@ -93,6 +108,34 @@ test("backend and frontend enforce choice options and answer restrictions consis
   assert.equal(validateField(ratingField, 4), null);
   assert.equal(checkAnswers([{ ...ratingField, type: "checkbox" }], { rating: "yes" }).errors.rating, "Choose a valid checkbox value");
   assert.equal(validateField({ ...ratingField, type: "checkbox" }, "yes"), "Choose a valid checkbox value");
+});
+test("legacy forms normalize to one step and conditional steps and fields evaluate consistently", () => {
+  const legacy = normalizeFormSteps({
+    title: "Legacy",
+    description: "",
+    accent: "#4f46e5",
+    fields: [{ id: "choice", type: "multiple_choice", label: "Choice", required: false, options: ["Yes", "No"] }],
+  });
+  assert.equal(legacy.steps.length, 1);
+  assert.equal(legacy.fields[0].stepId, legacy.steps[0].id);
+
+  const form = normalizeFormSteps({
+    title: "Conditional",
+    description: "",
+    accent: "#4f46e5",
+    steps: [
+      { id: "details", title: "Details", showIf: null },
+      { id: "extra", title: "Extra", showIf: { fieldId: "choice", operator: "equals", value: "Yes" } },
+    ],
+    fields: [
+      { id: "choice", stepId: "details", type: "multiple_choice", label: "Choice", required: false, options: ["Yes", "No"] },
+      { id: "extra-field", stepId: "extra", type: "short_text", label: "Extra", required: true, showIf: { fieldId: "choice", operator: "equals", value: "Yes" } },
+    ],
+  });
+  assert.deepEqual(visibleSteps(form, { choice: "Yes" }).map(step => step.id), ["details", "extra"]);
+  assert.deepEqual(visibleSteps(form, { choice: "No" }).map(step => step.id), ["details"]);
+  assert.equal(visibleFields(form, { choice: "No" }, "extra").length, 0);
+  assert.equal(conditionMatches({ fieldId: "choice", operator: "not_equals", value: "Yes" }, { choice: "No" }), true);
 });
 test("form autosave accepts partial bodies while preserving field ID validation", () => {
   const field = { id: "name", type: "short_text", label: "Name", required: false };
@@ -201,6 +244,35 @@ test("API requests share auth, body handling, blob parsing, and server error mes
     setAuthTokenGetter(async () => null);
   }
 });
+test("response API sends paginated filters and authenticated management actions", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  setAuthTokenGetter(async () => "response-token");
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    if (calls.length === 1)
+      return new Response(JSON.stringify({ items: [], total: 0, filteredTotal: 0 }), { status: 200 });
+    if (calls.length === 2)
+      return new Response(JSON.stringify({ id: "response-1", status: "read" }), { status: 200 });
+    if (calls.length === 3)
+      return new Response(JSON.stringify({ deletedCount: 1 }), { status: 200 });
+    return new Response("export-data", { status: 200 });
+  };
+  try {
+    await api.listResponses("form-1", { page: 2, pageSize: 10, q: "Ada" });
+    assert.match(calls[0].url, /responses\?page=2&pageSize=10&q=Ada$/);
+    assert.equal(calls[0].options.headers.Authorization, "Bearer response-token");
+    await api.updateResponseStatus("form-1", "response-1", "read");
+    assert.deepEqual(JSON.parse(calls[1].options.body), { status: "read" });
+    await api.deleteResponses("form-1", ["response-1"]);
+    assert.deepEqual(JSON.parse(calls[2].options.body), { responseIds: ["response-1"] });
+    assert.equal(await (await api.exportResponses("form-1", { status: "unread", format: "excel" })).text(), "export-data");
+    assert.match(calls[3].url, /responses\/export\?status=unread&format=excel$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setAuthTokenGetter(async () => null);
+  }
+});
 test("workspace data is cleared when authentication changes or ends", async () => {
   store.dispatch({ type: "auth/profile/pending", meta: { arg: "first-user" } });
   store.dispatch({ type: "auth/profile/fulfilled", payload: { id: "first-user" }, meta: { arg: "first-user" } });
@@ -232,7 +304,63 @@ test("form and response queries have indexes that support owner and date sorting
   const indexKeys = schema => schema.indexes().map(([keys]) => keys);
   assert.ok(indexKeys(Form.schema).some(keys => keys.owner === 1 && keys.updatedAt === -1));
   assert.ok(indexKeys(FormResponse.schema).some(keys => keys.form === 1 && keys.createdAt === -1));
+  assert.ok(indexKeys(FormResponse.schema).some(keys => keys.form === 1 && keys.status === 1 && keys.createdAt === -1));
   assert.ok(indexKeys(FormResponse.schema).some(keys => keys.createdAt === -1));
+  assert.equal(FormResponse.schema.path("status").defaultValue, "unread");
+});
+test("response query validation caps pagination and validates date and answer filters", () => {
+  assert.deepEqual(responseQuerySchema.parse({}), {
+    page: 1, pageSize: 25, q: "", fromOffsetMinutes: 0, toOffsetMinutes: 0,
+    status: "all", sortBy: "submittedAt", sortOrder: "desc", format: "csv"
+  });
+  assert.equal(responseQuerySchema.safeParse({ pageSize: "11" }).success, false);
+  assert.equal(responseQuerySchema.safeParse({ from: "2026-02-30" }).success, false);
+  assert.equal(responseQuerySchema.safeParse({ from: "2026-03-02", to: "2026-03-01" }).success, false);
+  assert.equal(responseQuerySchema.safeParse({ answer: "Ada" }).success, false);
+  assert.equal(responseQuerySchema.safeParse({ page: "100000", pageSize: "25" }).success, false);
+});
+test("response filters are form-scoped, date-bounded, status-aware and regex-safe", () => {
+  const query = responseQuerySchema.parse({
+    from: "2026-04-02", to: "2026-04-02", questionId: "name", answer: ".*", status: "unread", sortBy: "name", sortOrder: "asc"
+  });
+  const fields = [{ id: "name", type: "short_text" }, { id: "age", type: "number" }];
+  const filter = buildResponseFilter("form-id", query, fields);
+  assert.deepEqual(filter.$and[0], { form: "form-id" });
+  assert.deepEqual(filter.$and[1].createdAt, {
+    $gte: new Date("2026-04-02T00:00:00.000Z"),
+    $lt: new Date("2026-04-03T00:00:00.000Z")
+  });
+  assert.deepEqual(filter.$and[2].$or, [{ status: "unread" }, { status: { $exists: false } }]);
+  assert.equal(filter.$and[3].$or[0]["answers.name"].$regex, "\\.\\*");
+  assert.deepEqual(buildResponseSort(query), { "answers.name": 1, _id: 1 });
+  assert.equal(validateResponseFields(query, fields), null);
+  assert.equal(validateResponseFields({ ...query, sortBy: "foreign" }, fields), "Sort field is not part of this form");
+  const localDateQuery = responseQuerySchema.parse({ from: "2026-04-02", fromOffsetMinutes: "-330" });
+  assert.equal(buildResponseFilter("form-id", localDateQuery, fields).$and[1].createdAt.$gte.toISOString(), "2026-04-02T05:30:00.000Z");
+  const fileQuery = responseQuerySchema.parse({ questionId: "attachment", answer: "report", sortBy: "attachment" });
+  const fileFields = [{ id: "attachment", type: "file" }];
+  const fileFilter = buildResponseFilter("form-id", fileQuery, fileFields);
+  assert.equal(fileFilter.$and[1].$or[0]["answers.attachment.name"].$regex, "report");
+  assert.deepEqual(buildResponseSort(fileQuery, fileFields), { "answers.attachment.name": -1, _id: -1 });
+});
+test("response export escapes CSV formulas and SpreadsheetML text", () => {
+  assert.equal(csvCell('=HYPERLINK("https://example.test")'), `"'=HYPERLINK(""https://example.test"")"`);
+  assert.equal(csvCell(" \t=HYPERLINK(\"https://example.test\")"), `"' \t=HYPERLINK(""https://example.test"")"`);
+  assert.equal(csvCell("-12"), "-12");
+  assert.equal(xmlText(`<tag a="b">&'`), "&lt;tag a=&quot;b&quot;&gt;&amp;&apos;");
+  assert.equal(xmlText("bad\u0000control"), "badcontrol");
+});
+test("Google Sheets answer and worksheet helpers serialize values safely", () => {
+  assert.equal(answerCellValue(["Yes", "Maybe"]), "Yes, Maybe");
+  assert.equal(answerCellValue({ name: "Ada" }), "Ada");
+  assert.equal(answerCellValue({ nested: true }), '{"nested":true}');
+  assert.equal(columnName(27), "AA");
+  assert.equal(quoteSheetTitle("Client's data"), "'Client''s data'");
+});
+test("Google Sheets worker recognizes transient MongoDB network errors", () => {
+  assert.equal(isTransientMongoNetworkError({ name: "MongoNetworkError" }), true);
+  assert.equal(isTransientMongoNetworkError({ cause: { code: "ECONNRESET" } }), true);
+  assert.equal(isTransientMongoNetworkError(new Error("invalid delivery")), false);
 });
 test("successful response deletion updates dashboard counts and activity immediately", () => {
   store.dispatch({ type: "auth/profile/pending", meta: { arg: "response-test-user" } });
@@ -248,6 +376,24 @@ test("successful response deletion updates dashboard counts and activity immedia
   store.dispatch(responseDeleted({ formId: "form-1", responseId: "response-1" }));
   assert.equal(store.getState().forms.find((form) => form.id === "form-1")?.responseCount, 0);
   assert.equal(store.getState().responses.some((response) => response.id === "response-1"), false);
+});
+test("bulk response deletion adjusts counts by the confirmed deletion total", () => {
+  store.dispatch({ type: "auth/profile/pending", meta: { arg: "bulk-response-user" } });
+  store.dispatch({ type: "auth/profile/fulfilled", payload: { id: "bulk-response-user" }, meta: { arg: "bulk-response-user" } });
+  store.dispatch({
+    type: "app/load/fulfilled",
+    payload: {
+      forms: [{ id: "bulk-form", responseCount: 4 }],
+      responses: [
+        { id: "response-1", formId: "bulk-form" },
+        { id: "response-2", formId: "bulk-form" },
+      ]
+    },
+    meta: { arg: "bulk-response-user" }
+  });
+  store.dispatch(responsesDeleted({ formId: "bulk-form", responseIds: ["response-1", "already-deleted"], deletedCount: 1 }));
+  assert.equal(store.getState().forms.find(form => form.id === "bulk-form")?.responseCount, 3);
+  assert.deepEqual(store.getState().responses.map(response => response.id), ["response-2"]);
 });
 test("historical responses keep deleted and renamed field labels for display and CSV columns", () => {
   const currentFields = [{ id: "name", type: "short_text", label: "Preferred name", required: false }];

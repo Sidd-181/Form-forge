@@ -11,6 +11,7 @@
   --color-accent-700: #4338ca;
 }
 body { background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+select:not(:disabled), input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled), input[type="file"]:not(:disabled), input[type="checkbox"]:not(:disabled) + label[for], input[type="radio"]:not(:disabled) + label[for] { cursor: pointer; }
 .dot-grid { background-image: radial-gradient(#d4d4d8 1px, transparent 1px); background-size: 16px 16px; }
 html { scroll-padding-top: 5rem; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }

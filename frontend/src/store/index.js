@@ -52,6 +52,13 @@ const slice = createSlice({
                 form.responseCount = Math.max(0, form.responseCount - 1);
             s.responses = s.responses.filter(r => r.id !== a.payload.responseId);
         },
+        responsesDeleted: (s, a) => {
+            const form = s.forms.find(f => f.id === a.payload.formId);
+            if (form?.responseCount != null)
+                form.responseCount = Math.max(0, form.responseCount - a.payload.deletedCount);
+            const deletedIds = new Set(a.payload.responseIds);
+            s.responses = s.responses.filter(r => r.formId !== a.payload.formId || !deletedIds.has(r.id));
+        },
     },
     extraReducers: b => {
         b.addCase(loadDashboard.pending, s => { s.load = 'loading'; s.loadError = undefined; })
@@ -96,6 +103,7 @@ const slice = createSlice({
 });
 export const store = configureStore({ reducer: slice.reducer });
 export const responseDeleted = slice.actions.responseDeleted;
+export const responsesDeleted = slice.actions.responsesDeleted;
 export const clearAuthProfile = slice.actions.clearAuthProfile;
 export const useAppDispatch = () => useDispatch();
 export const useAppSelector = useSelector;

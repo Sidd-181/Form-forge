@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Copy, Trash2, Plus, X, Search } from 'lucide-react';
+import { GripVertical, Copy, Trash2, Plus, X, Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { FIELD_TYPES, hasOptions, hasPlaceholder } from '../services/fieldTypes';
 import FieldInput from '../components/FieldInput.jsx';
 import { Button, Input, Toggle, cn } from '../components/ui.jsx';
@@ -30,7 +30,7 @@ export function Library({ onAdd }) {
 }
 function SortableField({ field, selected, onSelect, onDuplicate, onDelete }) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: field.id });
-    return (<div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} onClick={onSelect} className={cn('group flex gap-2 rounded-xl border bg-white p-4', selected ? 'border-accent-500 ring-2 ring-accent-100' : 'border-line', isDragging && 'z-10 opacity-70')}>
+    return (<div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} onClick={onSelect} className={cn('group flex cursor-pointer gap-2 rounded-xl border bg-white p-4', selected ? 'border-accent-500 ring-2 ring-accent-100' : 'border-line', isDragging && 'z-10 opacity-70')}>
       <button aria-label="Drag to reorder" {...attributes} {...listeners} className="mt-1 h-6 cursor-grab text-neutral-400 hover:text-ink"><GripVertical size={16}/></button>
       <div className="min-w-0 flex-1 space-y-2">
         <div className="flex items-start justify-between gap-2">
@@ -47,15 +47,52 @@ function SortableField({ field, selected, onSelect, onDuplicate, onDelete }) {
       </div>
     </div>);
 }
-export function Canvas({ form, selectedId, onSelect, onMeta, onDuplicate, onDelete, onAddClick }) {
+export function Canvas({ form, activeStepId, onActiveStep, selectedId, onSelect, onMeta, onDuplicate, onDelete, onAddClick, onAddStep, onUpdateStep, onDeleteStep, onDuplicateStep, onReorderStep }) {
+    const activeStep = form.steps.find(step => step.id === activeStepId) ?? form.steps[0];
+    const stepFields = form.fields.filter(field => field.stepId === activeStep?.id);
     return (<div className="dot-grid min-h-full rounded-xl border border-line p-4 sm:p-8" onClick={() => onSelect(null)}>
       <div className="mx-auto max-w-xl space-y-3" onClick={e => e.stopPropagation()}>
         <div className="rounded-xl border border-line bg-white p-5" style={{ borderTop: `4px solid ${form.accent}` }}>
           <input aria-label="Form title" value={form.title} onChange={e => onMeta({ title: e.target.value })} placeholder="Form title" className="w-full text-xl font-semibold outline-none"/>
           <textarea aria-label="Form description" value={form.description} onChange={e => onMeta({ description: e.target.value })} placeholder="Add a description" rows={2} className="mt-1 w-full resize-none text-sm text-neutral-600 outline-none"/>
         </div>
-        <SortableContext items={form.fields.map(f => f.id)} strategy={verticalListSortingStrategy}>
-          {form.fields.map(f => (<SortableField key={f.id} field={f} selected={f.id === selectedId} onSelect={() => onSelect(f.id)} onDuplicate={() => onDuplicate(f.id)} onDelete={() => onDelete(f.id)}/>))}
+        <div className="flex gap-2 overflow-x-auto rounded-lg border border-line bg-white p-2">
+          {form.steps.map((step, index) => (
+            <button key={step.id} onClick={() => onActiveStep(step.id)} className={cn('shrink-0 rounded-md px-3 py-2 text-xs font-medium', activeStep?.id === step.id ? 'bg-ink text-white' : 'bg-neutral-100 text-neutral-600')}>
+              {index + 1}. {step.title || 'Untitled step'}
+            </button>
+          ))}
+          <button aria-label="Add step" onClick={onAddStep} className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-dashed border-neutral-300 text-neutral-500"><Plus size={14}/></button>
+        </div>
+        {activeStep && <div className="rounded-xl border border-line bg-white p-4">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 space-y-2">
+              <Input aria-label="Step title" value={activeStep.title} onChange={e => onUpdateStep(activeStep.id, { title: e.target.value })}/>
+              <Input aria-label="Step description" value={activeStep.description ?? ''} onChange={e => onUpdateStep(activeStep.id, { description: e.target.value })} placeholder="Step description"/>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <select aria-label="Step condition question" className="h-10 rounded-lg border border-line bg-white px-2 text-sm" value={activeStep.showIf?.fieldId ?? ''} onChange={e => onUpdateStep(activeStep.id, { showIf: e.target.value ? { fieldId: e.target.value, operator: 'equals', value: '' } : null })}>
+                  <option value="">Always show step</option>
+                  {form.fields.filter(field => field.stepId !== activeStep.id).map(field => <option key={field.id} value={field.id}>{field.label || 'Untitled question'}</option>)}
+                </select>
+                {activeStep.showIf && <>
+                  <select aria-label="Step condition operator" className="h-10 rounded-lg border border-line bg-white px-2 text-sm" value={activeStep.showIf.operator} onChange={e => onUpdateStep(activeStep.id, { showIf: { ...activeStep.showIf, operator: e.target.value } })}>
+                    <option value="equals">Equals</option>
+                    <option value="not_equals">Does not equal</option>
+                  </select>
+                  <Input aria-label="Step condition value" value={activeStep.showIf.value ?? ''} onChange={e => onUpdateStep(activeStep.id, { showIf: { ...activeStep.showIf, value: e.target.value } })} placeholder="Answer value"/>
+                </>}
+              </div>
+            </div>
+            <div className="flex gap-1">
+              <button aria-label="Move step up" title="Move step up" onClick={() => onReorderStep(activeStep.id, -1)} className="grid h-8 w-8 place-items-center rounded-md hover:bg-neutral-100"><ChevronUp size={15}/></button>
+              <button aria-label="Move step down" title="Move step down" onClick={() => onReorderStep(activeStep.id, 1)} className="grid h-8 w-8 place-items-center rounded-md hover:bg-neutral-100"><ChevronDown size={15}/></button>
+              <button aria-label="Duplicate step" title="Duplicate step" onClick={() => onDuplicateStep(activeStep.id)} className="grid h-8 w-8 place-items-center rounded-md hover:bg-neutral-100"><Copy size={14}/></button>
+              <button aria-label="Delete step" title="Delete step" disabled={form.steps.length <= 1} onClick={() => onDeleteStep(activeStep.id)} className="grid h-8 w-8 place-items-center rounded-md text-red-500 hover:bg-red-50 disabled:opacity-40"><Trash2 size={14}/></button>
+            </div>
+          </div>
+        </div>}
+        <SortableContext items={stepFields.map(f => f.id)} strategy={verticalListSortingStrategy}>
+          {stepFields.map(f => (<SortableField key={f.id} field={f} selected={f.id === selectedId} onSelect={() => onSelect(f.id)} onDuplicate={() => onDuplicate(f.id)} onDelete={() => onDelete(f.id)}/>))}
         </SortableContext>
         <button onClick={onAddClick} className="flex h-16 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-neutral-300 bg-white/70 text-sm text-neutral-600 hover:border-accent-500 lg:pointer-events-none lg:opacity-60">
           <Plus size={16}/>{form.fields.length === 0 ? 'Add your first field from the library' : 'Add field from the library'}
@@ -102,6 +139,27 @@ export function Properties({ form, field, onUpdate, onMeta }) {
           <Row label="Description"><Input value={field.description ?? ''} onChange={e => onUpdate({ description: e.target.value })} placeholder="Help text"/></Row>
           {hasPlaceholder(field.type) && <Row label={field.type === 'checkbox' ? 'Checkbox text' : 'Placeholder'}><Input value={field.placeholder ?? ''} onChange={e => onUpdate({ placeholder: e.target.value })}/></Row>}
           <div className="flex items-center justify-between"><span className="text-sm font-medium">Required</span><Toggle label="Required" checked={field.required} onChange={v => onUpdate({ required: v })}/></div>
+          <Row label="Step">
+            <select className="h-10 w-full rounded-lg border border-line bg-white px-3 text-sm" value={field.stepId ?? form.steps[0]?.id} onChange={e => onUpdate({ stepId: e.target.value })}>
+              {form.steps.map(step => <option key={step.id} value={step.id}>{step.title || 'Untitled step'}</option>)}
+            </select>
+          </Row>
+          <div className="space-y-2 border-t border-line pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Conditional display</p>
+            <Row label="Show this question only when">
+              <select className="h-10 w-full rounded-lg border border-line bg-white px-3 text-sm" value={field.showIf?.fieldId ?? ''} onChange={e => onUpdate({ showIf: e.target.value ? { fieldId: e.target.value, operator: 'equals', value: '' } : null })}>
+                <option value="">Always show</option>
+                {form.fields.filter(source => source.id !== field.id).map(source => <option key={source.id} value={source.id}>{source.label || 'Untitled question'}</option>)}
+              </select>
+            </Row>
+            {field.showIf && <div className="grid grid-cols-2 gap-2">
+              <select aria-label="Condition operator" className="h-10 rounded-lg border border-line bg-white px-2 text-sm" value={field.showIf.operator} onChange={e => onUpdate({ showIf: { ...field.showIf, operator: e.target.value } })}>
+                <option value="equals">Equals</option>
+                <option value="not_equals">Does not equal</option>
+              </select>
+              <Input aria-label="Condition value" value={field.showIf.value ?? ''} onChange={e => onUpdate({ showIf: { ...field.showIf, value: e.target.value } })} placeholder="Answer value"/>
+            </div>}
+          </div>
           {hasOptions(field.type) && (<div className="space-y-2">
               <p className="text-xs font-medium text-neutral-600">Options</p>
               {opts.map((o, i) => (<div key={i} className="flex gap-2">
