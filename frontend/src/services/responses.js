@@ -1,22 +1,53 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
-import { responseDeleted, useAppDispatch } from '../store/index.js';
-export function useResponses(formId) {
+import { responseDeleted, responsesDeleted, useAppDispatch } from '../store/index.js';
+export function useResponses(formId, query) {
     const dispatch = useAppDispatch();
-    const [state, setState] = useState({ data: null, error: null });
+    const [state, setState] = useState({ data: null, error: null, loading: true });
     const [tick, setTick] = useState(0);
+    const queryKey = JSON.stringify(query ?? null);
     useEffect(() => {
         let live = true;
-        api.listResponses(formId).then(data => live && setState({ data, error: null })).catch((e) => live && setState({ data: null, error: e.message }));
+        setState(current => ({ ...current, loading: true, error: null }));
+        const requestQuery = queryKey === 'null' ? undefined : JSON.parse(queryKey);
+        api.listResponses(formId, requestQuery)
+            .then(data => live && setState({ data, error: null, loading: false }))
+            .catch(e => live && setState(current => ({ ...current, error: e.message, loading: false })));
         return () => { live = false; };
-    }, [formId, tick]);
-    const reload = useCallback(() => { setState({ data: null, error: null }); setTick(t => t + 1); }, []);
-    const remove = async (rid) => {
+    }, [formId, queryKey, tick]);
+    const reload = useCallback(() => { setState({ data: null, error: null, loading: true }); setTick(t => t + 1); }, []);
+    const remove = async rid => {
         await api.deleteResponse(formId, rid);
-        setState(s => ({ ...s, data: s.data?.filter(r => r.id !== rid) ?? null }));
+        setState(s => {
+            if (Array.isArray(s.data))
+                return { ...s, data: s.data.filter(response => response.id !== rid) };
+            if (!s.data)
+                return s;
+            return { ...s, data: { ...s.data, items: s.data.items.filter(response => response.id !== rid), total: Math.max(0, s.data.total - 1), filteredTotal: Math.max(0, s.data.filteredTotal - 1) } };
+        });
         dispatch(responseDeleted({ formId, responseId: rid }));
     };
-    return { ...state, reload, remove };
+    const removeMany = async responseIds => {
+        const { deletedCount } = await api.deleteResponses(formId, responseIds);
+        dispatch(responsesDeleted({ formId, responseIds, deletedCount }));
+        setState(s => {
+            if (!s.data || Array.isArray(s.data))
+                return s;
+            const deleted = new Set(responseIds);
+            return { ...s, data: { ...s.data, items: s.data.items.filter(response => !deleted.has(response.id)), total: Math.max(0, s.data.total - deletedCount), filteredTotal: Math.max(0, s.data.filteredTotal - deletedCount) } };
+        });
+        return deletedCount;
+    };
+    const updateStatus = async (responseId, status) => {
+        const response = await api.updateResponseStatus(formId, responseId, status);
+        setState(s => {
+            if (!s.data || Array.isArray(s.data))
+                return s;
+            return { ...s, data: { ...s.data, items: s.data.items.map(item => item.id === responseId ? response : item) } };
+        });
+        return response;
+    };
+    return { ...state, reload, remove, removeMany, updateStatus };
 }
 export const fmtAnswer = (a) => Array.isArray(a) ? a.join(', ') : typeof a === 'boolean' ? (a ? 'Yes' : 'No') : a && typeof a === 'object' && 'fileId' in a ? String(a.name ?? 'Uploaded file') : a == null ? '' : String(a);
 export const responseFieldKey = field => `${field.id}\u0000${field.label}\u0000${field.type}`;

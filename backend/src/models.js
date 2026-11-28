@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.publicUser = exports.FormUpload = exports.FormResponse = exports.Form = exports.User = void 0;
+exports.publicUser = exports.GoogleOAuthState = exports.GoogleSheetsConnection = exports.GoogleSheetsIntegration = exports.FormUpload = exports.FormResponse = exports.Form = exports.User = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 // Expose `id`, hide internals when sending JSON to the client.
 const toJSON = {
@@ -66,6 +66,22 @@ const fieldSchema = new mongoose_1.Schema({
     type: { type: String, required: true, enum: ['short_text', 'long_text', 'email', 'number', 'phone', 'dropdown', 'multiple_choice', 'checkbox', 'date', 'rating', 'file'] },
     label: { type: String, default: '' }, description: String, placeholder: String,
     required: { type: Boolean, default: false }, options: [String], min: Number, max: Number,
+    stepId: { type: String, default: null },
+    showIf: {
+        fieldId: { type: String, default: null },
+        operator: { type: String, enum: ['equals', 'not_equals'], default: null },
+        value: { type: String, default: null },
+    },
+}, { _id: false });
+const stepSchema = new mongoose_1.Schema({
+    id: { type: String, required: true },
+    title: { type: String, default: '' },
+    description: { type: String, default: '' },
+    showIf: {
+        fieldId: { type: String, default: null },
+        operator: { type: String, enum: ['equals', 'not_equals'], default: null },
+        value: { type: String, default: null },
+    },
 }, { _id: false });
 const formSchema = new mongoose_1.Schema({
     owner: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -73,6 +89,7 @@ const formSchema = new mongoose_1.Schema({
     description: { type: String, default: '' },
     status: { type: String, enum: ['draft', 'published'], default: 'draft' },
     fields: [fieldSchema],
+    steps: [stepSchema],
     accent: { type: String, default: '#4f46e5' },
     submissionLimit: { type: Number, default: null },
     submissionCount: { type: Number },
@@ -82,16 +99,63 @@ const formSchema = new mongoose_1.Schema({
 formSchema.index({ owner: 1, updatedAt: -1 });
 const Form = mongoose_1.default.model('Form', formSchema);
 exports.Form = Form;
+const googleSheetsDeliverySchema = new mongoose_1.Schema({
+    status: { type: String, enum: ['pending', 'syncing', 'success', 'failed'], default: 'pending' },
+    spreadsheetId: { type: String, required: true },
+    spreadsheetTitle: { type: String, default: '' },
+    sheetId: { type: Number, required: true },
+    sheetTitle: { type: String, default: '' },
+    attempts: { type: Number, default: 0 },
+    manualRetries: { type: Number, default: 0 },
+    nextAttemptAt: { type: Date, default: Date.now },
+    lastAttemptAt: { type: Date, default: null },
+    syncedAt: { type: Date, default: null },
+    lockUntil: { type: Date, default: null },
+    error: { type: String, default: '' },
+}, { _id: false });
 const responseSchema = new mongoose_1.Schema({
     form: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Form', required: true },
     answers: { type: mongoose_1.Schema.Types.Mixed, required: true },
     fieldSnapshots: { type: [fieldSchema], default: [] },
     completionSeconds: { type: Number, default: null },
+    status: { type: String, enum: ['read', 'unread'], default: 'unread' },
+    googleSheetsDelivery: { type: googleSheetsDeliverySchema, default: undefined },
 }, { timestamps: { createdAt: true, updatedAt: false }, toJSON });
 responseSchema.index({ form: 1, createdAt: -1 });
+responseSchema.index({ form: 1, status: 1, createdAt: -1 });
 responseSchema.index({ createdAt: -1 });
+responseSchema.index({ 'googleSheetsDelivery.status': 1, 'googleSheetsDelivery.nextAttemptAt': 1 });
 const FormResponse = mongoose_1.default.model('Response', responseSchema);
 exports.FormResponse = FormResponse;
+const GoogleSheetsIntegration = mongoose_1.default.model('GoogleSheetsIntegration', new mongoose_1.Schema({
+    owner: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    form: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Form', required: true },
+    enabled: { type: Boolean, default: false },
+    spreadsheetId: { type: String, required: true },
+    spreadsheetTitle: { type: String, default: '' },
+    sheetId: { type: Number, required: true },
+    sheetTitle: { type: String, default: '' },
+}, { timestamps: true }));
+GoogleSheetsIntegration.schema.index({ form: 1 }, { unique: true });
+GoogleSheetsIntegration.schema.index({ owner: 1 });
+exports.GoogleSheetsIntegration = GoogleSheetsIntegration;
+const GoogleSheetsConnection = mongoose_1.default.model('GoogleSheetsConnection', new mongoose_1.Schema({
+    owner: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+    email: { type: String, default: '' },
+    accessTokenEncrypted: { type: String, required: true, select: false },
+    refreshTokenEncrypted: { type: String, required: true, select: false },
+    expiresAt: { type: Date, required: true },
+}, { timestamps: true }));
+exports.GoogleSheetsConnection = GoogleSheetsConnection;
+const GoogleOAuthState = mongoose_1.default.model('GoogleOAuthState', new mongoose_1.Schema({
+    owner: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    stateHash: { type: String, required: true, unique: true },
+    codeVerifier: { type: String, required: true },
+    returnTo: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+}, { timestamps: true }));
+GoogleOAuthState.schema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+exports.GoogleOAuthState = GoogleOAuthState;
 const FormUpload = mongoose_1.default.model('FormUpload', new mongoose_1.Schema({
     form: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Form', required: true, index: true },
     fieldId: { type: String, required: true },

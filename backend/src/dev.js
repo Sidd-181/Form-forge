@@ -2,6 +2,7 @@
 
 const app = require("./app");
 const { connectToDatabase } = require("./database");
+const { startGoogleSheetsDeliveryWorker } = require("./services/googleSheetsWorker");
 
 async function startServer() {
     const configurationError = app.getConfigurationError();
@@ -9,6 +10,7 @@ async function startServer() {
         throw new Error(configurationError);
 
     await connectToDatabase();
+    startGoogleSheetsDeliveryWorker();
     const port = Number(process.env.PORT ?? 4000);
     if (!Number.isInteger(port) || port < 1 || port > 65535)
         throw new Error("PORT must be a valid port number");

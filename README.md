@@ -13,8 +13,13 @@ The API must connect to MongoDB before signup or login can work. Check `http://l
 
 When deploying frontend and backend separately, set the frontend build variable `VITE_API_BASE_URL` to the backend origin (for example `https://api.example.com`) or its `/api` URL. Set the backend `CLIENT_ORIGIN` to the frontend origin so browser requests are allowed by CORS. Rebuild the frontend after changing `VITE_API_BASE_URL`.
 
+The root and frontend Vercel configurations provide SPA fallback for frontend routes while excluding `/api`; production API requests must use the configured backend URL.
+
 ## Tests
-Run the focused validation/component suite with `npm test` from `backend`. Run the public submission/upload end-to-end test with `npm run test:e2e` from `backend`; it requires the configured MongoDB and Clerk environment and creates then removes a temporary test form and upload.
+Run the focused validation/component suite with `npm test` from `backend`. Run the Mongo-backed workflow end-to-end suite with `npm run test:e2e` from `backend`; it requires the configured MongoDB and Clerk environment and creates then removes temporary test records and uploads.
+
+## Response management
+The form Responses page uses the authenticated `GET /api/forms/:id/responses` endpoint with server-side pagination, search, date/question/answer/status filters, and sorting. CSV and Excel-compatible SpreadsheetML (`.xls`) exports use the same filters. Response status updates use `PATCH /api/forms/:id/responses/:responseId/status`; bulk deletion uses `DELETE /api/forms/:id/responses` with up to 500 response IDs. Requests are restricted to forms owned by the authenticated user. The no-query responses endpoint retains its array response shape for the existing analytics page.
 
 ## Authentication and account migration
 Sign-in, sign-up, and password recovery are handled by Clerk. The frontend uses `VITE_CLERK_PUBLISHABLE_KEY`; the backend requires `CLERK_SECRET_KEY` and the same publishable key as `CLERK_PUBLISHABLE_KEY`. Never put `CLERK_SECRET_KEY` in a frontend environment file. Configure these through Clerk for each deployment environment. Existing FormForge accounts are linked to Clerk only after a user signs in with a verified primary email that matches the saved account. Existing passwords are not imported, so users must create or recover their password through Clerk.

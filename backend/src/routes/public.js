@@ -82,7 +82,9 @@ r.get('/forms/:id', async (req, res) => {
     }
     await models_1.Form.updateOne({ _id: o.form._id }, { $inc: { views: 1 } });
     const { id, title, description, accent, fields } = o.form.toJSON();
-    res.json({ id, title, description, accent, fields, maxUploadSizeBytes: uploadPolicy_1.MAX_UPLOAD_SIZE });
+    let steps = o.form.steps?.length ? o.form.steps.map(step => typeof step.toObject === 'function' ? step.toObject() : { ...step }) : [{ id: 'step_1', title: 'Step 1', description: '', showIf: null }];
+    const normalizedFields = fields.map(field => ({ ...field, stepId: field.stepId || steps[0].id, showIf: field.showIf ?? null }));
+    res.json({ id, title, description, accent, fields: normalizedFields, steps, maxUploadSizeBytes: uploadPolicy_1.MAX_UPLOAD_SIZE });
 });
 r.post('/forms/:id/uploads/:fieldId', validateUploadTarget, parseUpload, async (req, res) => {
     const form = res.locals.uploadForm;
@@ -121,7 +123,8 @@ r.post('/forms/:id/responses', async (req, res) => {
         return;
     }
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const { errors, clean } = (0, validate_1.checkAnswers)(o.form.fields, body.answers && typeof body.answers === 'object' ? body.answers : {});
+    const steps = o.form.steps?.length ? o.form.steps.map(step => typeof step.toObject === 'function' ? step.toObject() : { ...step }) : [];
+    const { errors, clean } = (0, validate_1.checkAnswers)(o.form.fields, body.answers && typeof body.answers === 'object' ? body.answers : {}, steps);
     if (Object.keys(errors).length) {
         res.status(422).json({ code: 'invalid', errors });
         return;
@@ -166,11 +169,28 @@ r.post('/forms/:id/responses', async (req, res) => {
     }
     const secs = Number(body.completionSeconds);
     try {
+        const integration = await models_1.GoogleSheetsIntegration.findOne({
+            form: latest.form._id,
+            owner: latest.form.owner,
+            enabled: true,
+        });
         await models_1.FormResponse.create({
             form: latest.form._id,
             answers: clean,
             fieldSnapshots: o.form.fields.map(field => typeof field.toObject === 'function' ? field.toObject() : { ...field }),
             completionSeconds: Number.isFinite(secs) && secs >= 0 && secs < 86400 ? Math.round(secs) : null,
+            ...(integration ? {
+                googleSheetsDelivery: {
+                    status: 'pending',
+                    spreadsheetId: integration.spreadsheetId,
+                    spreadsheetTitle: integration.spreadsheetTitle,
+                    sheetId: integration.sheetId,
+                    sheetTitle: integration.sheetTitle,
+                    attempts: 0,
+                    manualRetries: 0,
+                    nextAttemptAt: new Date(),
+                },
+            } : {}),
         });
     }
     catch (error) {

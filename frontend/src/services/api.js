@@ -70,6 +70,15 @@ async function request(path, { method = 'GET', body, bodyType = 'json', response
 
 const encode = value => encodeURIComponent(value);
 const formPath = id => `/forms/${encode(id)}`;
+const queryString = query => {
+    const params = new URLSearchParams();
+    Object.entries(query ?? {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '')
+            params.set(key, String(value));
+    });
+    const serialized = params.toString();
+    return serialized ? `?${serialized}` : '';
+};
 export const api = {
     ensureProfile: () => request('/auth/profile', { method: 'POST' }),
     listForms: () => request('/forms'),
@@ -94,9 +103,20 @@ export const api = {
         method: 'POST',
         body: { answers, completionSeconds },
     }),
-    listResponses: id => request(`${formPath(id)}/responses`),
+    listResponses: (id, query) => request(`${formPath(id)}/responses${queryString(query)}`),
     deleteResponse: (id, responseId) => request(`${formPath(id)}/responses/${encode(responseId)}`, { method: 'DELETE' }),
+    updateResponseStatus: (id, responseId, status) => request(`${formPath(id)}/responses/${encode(responseId)}/status`, { method: 'PATCH', body: { status } }),
+    deleteResponses: (id, responseIds) => request(`${formPath(id)}/responses`, { method: 'DELETE', body: { responseIds } }),
+    exportResponses: (id, query) => request(`${formPath(id)}/responses/export${queryString(query)}`, { responseType: 'blob' }),
     saveSettings: body => request('/settings', { method: 'PATCH', body }),
     deleteAccount: () => request('/settings/account', { method: 'DELETE' }),
     activity: () => request('/forms/activity'),
+    googleSheetsConnection: () => request('/integrations/google-sheets/connection'),
+    connectGoogleSheets: body => request('/integrations/google-sheets/connect', { method: 'POST', body }),
+    disconnectGoogleSheets: () => request('/integrations/google-sheets/connection', { method: 'DELETE' }),
+    googleSheetsSpreadsheets: () => request('/integrations/google-sheets/spreadsheets'),
+    googleSheetsWorksheets: spreadsheetId => request(`/integrations/google-sheets/spreadsheets/${encode(spreadsheetId)}/sheets`),
+    googleSheetsForm: formId => request(`/integrations/google-sheets/forms/${encode(formId)}`),
+    saveGoogleSheetsForm: (formId, body) => request(`/integrations/google-sheets/forms/${encode(formId)}`, { method: 'PUT', body }),
+    retryGoogleSheetsDelivery: (formId, deliveryId) => request(`/integrations/google-sheets/forms/${encode(formId)}/deliveries/${encode(deliveryId)}/retry`, { method: 'POST' }),
 };

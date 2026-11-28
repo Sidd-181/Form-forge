@@ -71,8 +71,7 @@ function AnalyticsView({ form }) {
         f, data: (f.options ?? []).map(o => ({ name: o, count: rows.filter(r => r.answers[f.id] === o).length })),
     }));
     return (<div className="space-y-6">
-      <div><h1 className="text-2xl font-semibold tracking-tight">{form.title}</h1><p className="mt-1 text-sm text-neutral-500">Analytics</p></div>
-      <FormTabs id={form.id}/>
+      <FormTabs id={form.id} title={form.title}/>
       {error ? (<div role="alert" className="rounded-xl border border-line bg-white p-10 text-center"><p className="font-medium">Couldn't load analytics</p><p className="mt-1 text-sm text-neutral-500">{error}</p><Button className="mt-4" onClick={reload}>Try again</Button></div>) : !data ? (<p className="rounded-xl border border-line bg-white p-10 text-center text-sm text-neutral-500">Loading analytics…</p>) : data.length === 0 ? (<div className="rounded-xl border border-dashed border-line bg-white p-10 text-center">
           <p className="font-medium">No analytics yet</p>
           <p className="mt-1 text-sm text-neutral-500">Charts appear once your form receives its first response.</p>
@@ -107,4 +106,4 @@ function AnalyticsView({ form }) {
         </>)}
     </div>);
 }
-export default function Analytics() { return <WithForm>{f => <AnalyticsView form={f}/>}</WithForm>; }
+export default function Analytics() { return <WithForm>{f => <AnalyticsView key={f.id} form={f}/>}</WithForm>; }

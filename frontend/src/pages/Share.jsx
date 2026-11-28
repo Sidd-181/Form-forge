@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Copy, Check, Eye, Inbox, Mail, MessageCircle, Share2, Send } from 'lucide-react';
+import { Copy, Check, Mail, MessageCircle, Share2, Send } from 'lucide-react';
 import WithForm from '../components/WithForm.jsx';
+import FormTabs from '../components/FormTabs.jsx';
 import { Badge, Button, Dialog, Input } from '../components/ui.jsx';
+import GoogleSheetsIntegration from '../components/GoogleSheetsIntegration.jsx';
 import { fetchForm, setStatus, updateForm, useAppDispatch } from '../store';
 const Card = ({ title, children }) => (<section className="space-y-3 rounded-xl border border-line bg-white p-5"><h2 className="font-medium">{title}</h2>{children}</section>);
 function CopyBox({ label, value, multiline }) {
@@ -67,6 +68,8 @@ function Limits({ form, responseCount, responseCountError }) {
 function ShareView({ form }) {
     const dispatch = useAppDispatch();
     const [confirm, setConfirm] = useState(false);
+    const googleSheetsStatus = new URLSearchParams(window.location.search).get('googleSheets');
+    const [googleSheetsOpen, setGoogleSheetsOpen] = useState(() => Boolean(googleSheetsStatus));
     const [error, setError] = useState(null);
     const [responseCount, setResponseCount] = useState(null);
     const [responseCountError, setResponseCountError] = useState(null);
@@ -99,17 +102,8 @@ function ShareView({ form }) {
             setError(e.message ?? 'Something went wrong');
         }
     };
-    return (<div className="mx-auto max-w-3xl space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Publish & share</h1>
-          <p className="mt-1 text-sm text-neutral-500">{form.title}</p>
-        </div>
-        <div className="flex gap-2">
-          <Link to={`/app/forms/${form.id}/preview`}><Button variant="secondary" size="sm"><Eye size={14}/>Preview</Button></Link>
-          <Link to={`/app/forms/${form.id}/responses`}><Button variant="secondary" size="sm"><Inbox size={14}/>Responses</Button></Link>
-        </div>
-      </div>
+    return (<div className="mx-auto max-w-3xl space-y-6">
+      <FormTabs id={form.id} title={form.title}/>
 
       <Card title="Status">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -131,6 +125,12 @@ function ShareView({ form }) {
       </Card>
 
       <Card title="Embed on your website"><CopyBox label="Embed code" value={embed} multiline/></Card>
+      <Card title="Google Sheets integration">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-xl text-sm text-neutral-600">Send every new form response to a spreadsheet automatically, with delivery status and retry controls.</p>
+          <Button variant="secondary" onClick={() => setGoogleSheetsOpen(true)}>Configure Sheets</Button>
+        </div>
+      </Card>
       <Limits key={form.id} form={form} responseCount={responseCount} responseCountError={responseCountError}/>
 
       <Dialog open={confirm} onClose={() => setConfirm(false)} title={published ? 'Unpublish form?' : 'Publish form?'}>
@@ -138,6 +138,11 @@ function ShareView({ form }) {
         {error && <p role="alert" className="mt-3 text-red-600">{error}</p>}
         <div className="mt-6 flex justify-end gap-2"><Button variant="secondary" onClick={() => setConfirm(false)}>Cancel</Button><Button onClick={toggle}>{published ? 'Unpublish' : 'Publish'}</Button></div>
       </Dialog>
+      {googleSheetsOpen && <GoogleSheetsIntegration
+        form={form}
+        oauthStatus={googleSheetsStatus}
+        onClose={() => setGoogleSheetsOpen(false)}
+      />}
     </div>);
 }
 export default function Share() { return <WithForm>{f => <ShareView key={f.id} form={f}/>}</WithForm>; }
